@@ -31,7 +31,7 @@ This project implements a temperature monitoring system that reads the internal 
 STM32          I2C LCD
 PB6     -----> SCL
 PB7     -----> SDA
-3.3V    -----> VCC
+5V    -----> VCC
 GND     -----> GND
 ```
 
