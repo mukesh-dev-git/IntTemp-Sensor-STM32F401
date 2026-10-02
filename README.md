@@ -1,188 +1,120 @@
-# STM32 Temperature Monitor
+<div align="center">
 
-A real-time temperature monitoring system using STM32 microcontroller with LCD display output.
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:03234B,100:EF4444&height=200&section=header&text=STM32%20Temperature%20Monitor&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=Internal%20sensor%20%C2%B7%20VREFINT%20compensation%20%C2%B7%20I2C%20LCD&descAlignY=58&descSize=18" width="100%" alt="STM32 Temperature Monitor banner"/>
 
-<img src="output.jpeg" alt="TEMP Monitor DISPLAY" width="250" height="380"/>
+<a href="#-how-it-works"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=20&pause=1200&color=EF4444&center=true&vCenter=true&width=720&lines=The+chip+measures+its+own+temperature;Two-channel+ADC+scan+with+DMA;Supply-independent+reading+via+VREFINT;Updated+on+a+16x2+LCD+every+second" alt="Typing summary"/></a>
 
-## Overview
+<br/>
 
-This project implements a temperature monitoring system that reads the internal temperature sensor of an STM32 microcontroller and displays the temperature on an I2C LCD screen. The system uses DMA-based ADC conversion triggered by a timer for efficient operation.
+[![STM32](https://img.shields.io/badge/STM32F401CCU6-Black%20Pill-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32f401cc.html)
+[![C](https://img.shields.io/badge/C-HAL-A8B9CC?logo=c&logoColor=black)](Core/Src/main.c)
+[![ADC](https://img.shields.io/badge/ADC1-scan%20%2B%20DMA-EF4444)](#-how-it-works)
+[![STM32CubeIDE](https://img.shields.io/badge/STM32CubeIDE-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/development-tools/stm32cubeide.html)
+<br/>
+[![Status](https://img.shields.io/badge/Status-Complete-2ea44f)](#-status-and-ideas)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-## Features
+</div>
 
-- **Real-time Temperature Monitoring**: Continuous temperature reading from STM32's internal temperature sensor
-- **LCD Display**: 16x2 I2C LCD for temperature display
-- **DMA-based ADC**: Efficient ADC conversion using DMA transfer
-- **Timer-triggered Conversion**: Timer 3 triggers ADC conversions for consistent sampling
-- **Voltage Reference Compensation**: Uses internal voltage reference for accurate readings
+---
 
-## Hardware Requirements
+## <img src="https://api.iconify.design/lucide/target.svg?color=%23EF4444" width="26" align="top" alt=""/> Project Overview
 
-### STM32 Microcontroller
-- STM32F4xx series (tested on STM32F401/F411)
-- External crystal oscillator (HSE)
+No external sensor needed: the **STM32F401's built-in temperature sensor** is read together with the **internal voltage reference (VREFINT)**, so the result does not depend on the exact supply voltage. The temperature is shown on a **16x2 I2C LCD**.
 
-### LCD Display
-- 16x2 I2C LCD module
-- I2C address: Standard (usually 0x27 or 0x3F)
+<div align="center">
+<img src="output.jpeg" alt="Temperature shown on the LCD" width="230"/>
+</div>
 
-### Connections
-```
-STM32          I2C LCD
-PB6     -----> SCL
-PB7     -----> SDA
-5V    -----> VCC
-GND     -----> GND
-```
+### Key Features
 
-## Software Configuration
+- <img src="https://api.iconify.design/lucide/thermometer.svg?color=%23EF4444" width="18" align="top" alt=""/> **Internal sensor**: ADC1 channel TEMPSENSOR, 480-cycle sampling as the datasheet requires.
+- <img src="https://api.iconify.design/lucide/scale.svg?color=%230EA5E9" width="18" align="top" alt=""/> **VREFINT compensation**: the reference channel is converted in the same scan to work out the real ADC supply voltage.
+- <img src="https://api.iconify.design/lucide/repeat.svg?color=%237C3AED" width="18" align="top" alt=""/> **Scan + DMA**: both channels in one sequence, triggered by TIM3, written straight into `AdcRaw[2]`.
+- <img src="https://api.iconify.design/lucide/monitor.svg?color=%2310B981" width="18" align="top" alt=""/> **LCD readout**: `Temperature:` / `xx.xx C`, refreshed every second.
 
-### Peripherals Used
-- **ADC1**: 12-bit resolution, DMA mode
-  - Channel 1: Internal voltage reference (VREFINT)
-  - Channel 2: Internal temperature sensor (TEMPSENSOR)
-- **Timer 3**: ADC trigger source
-- **I2C1**: LCD communication
-- **DMA2 Stream 0**: ADC data transfer
+## <img src="https://api.iconify.design/lucide/network.svg?color=%23EF4444" width="26" align="top" alt=""/> How It Works
 
-### Key Parameters
-```c
-#define VREFINT 1.21        // Internal reference voltage (V)
-#define ADCMAX 4095.0       // 12-bit ADC maximum value
-#define V25 0.76            // Temperature sensor voltage at 25°C
-#define AVG_SLOPE 0.0025    // Temperature coefficient (2.5mV/°C)
+```mermaid
+flowchart LR
+    T[TIM3 TRGO] --> A[ADC1 scan<br/>rank 1: VREFINT<br/>rank 2: TEMPSENSOR]
+    A -->|DMA2 stream 0| R[AdcRaw 0..1]
+    R -->|ConvCplt callback<br/>sets flag| C[main loop, every 1 s<br/>compensate + convert]
+    C --> L[16x2 I2C LCD]
+
+    classDef hw fill:#03234B,stroke:#EF4444,color:#fff
+    classDef fw fill:#EEEDFE,stroke:#7F77DD,color:#222
+    class L hw
+    class T,A,R,C fw
 ```
 
-## Temperature Calculation
-
-The temperature is calculated using the STM32's internal temperature sensor:
-
 ```
-Temperature = ((VTmpSens - V25) / AVG_SLOPE) + 25.0°C
+VDDA       = 1.21 V × 4095 / AdcRaw[0]          (VREFINT, nominal 1.21 V)
+V_sense    = VDDA × AdcRaw[1] / 4095
+T (°C)     = (V_sense − 0.76 V) / 0.0025 V/°C + 25
 ```
 
-Where:
-- `VTmpSens` = Temperature sensor voltage (compensated with VREFINT)
-- `V25` = Sensor voltage at 25°C (0.76V)
-- `AVG_SLOPE` = Temperature coefficient (2.5mV/°C)
+`V25 = 0.76 V` and `Avg_Slope = 2.5 mV/°C` are the typical values from the STM32F401 datasheet.
 
-## System Operation
+## <img src="https://api.iconify.design/lucide/plug.svg?color=%23EF4444" width="26" align="top" alt=""/> Wiring
 
-1. **Initialization**:
-   - Configure system clock (84MHz from HSE + PLL)
-   - Initialize ADC1 with DMA
-   - Setup Timer 3 for ADC triggering
-   - Initialize I2C1 for LCD communication
+| From | To (STM32F401CCU6) | Notes |
+|---|---|---|
+| LCD backpack SCL | PB6 | I2C1, 100 kHz, open-drain with pull-ups |
+| LCD backpack SDA | PB7 | |
+| LCD backpack VCC / GND | 5V / GND | |
+| ST-Link SWDIO / SWCLK | PA13 / PA14 | Programming |
 
-2. **Main Loop**:
-   - Wait for ADC conversion completion (DMA callback)
-   - Calculate temperature using voltage reference compensation
-   - Update LCD display every 2 seconds
-   - Repeat continuously
+Clock: 25 MHz HSE → PLL (M=25, N=168, P=2) → 84 MHz.
 
-## Code Structure
+## <img src="https://api.iconify.design/lucide/zap.svg?color=%23EF4444" width="26" align="top" alt=""/> Build and Flash
+
+1. Open the project in **STM32CubeIDE** (or open `Temperature-Sensor.ioc`).
+2. Enable float formatting for `sprintf` (Project Properties → C/C++ Build → MCU Settings → *Use float with printf*), otherwise the LCD shows an empty number.
+3. Build, connect the ST-Link, and Run.
+4. The LCD shows `Temp Monitor` for two seconds, then the live temperature.
+
+To change the refresh rate, edit `HAL_Delay(1000)` in the main loop. For Fahrenheit: `Temperature * 9.0 / 5.0 + 32.0`.
+
+## <img src="https://api.iconify.design/lucide/wrench.svg?color=%23EF4444" width="26" align="top" alt=""/> Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| LCD blank | PB6/PB7 wiring, 5V supply, contrast pot, I2C address in `LCD.h` (0x27 or 0x3F) |
+| Number missing after `C` | Float printf support not enabled |
+| Reading a few degrees off | Expected with typical V25/slope values; see the calibration idea below |
+| Reading never changes | DMA interrupt enabled; TIM3 started; ADC started with length 2 |
+
+## <img src="https://api.iconify.design/lucide/folder-tree.svg?color=%23EF4444" width="26" align="top" alt=""/> Project Structure
 
 ```
-main.c
-├── System Initialization
-│   ├── SystemClock_Config()
-│   ├── MX_GPIO_Init()
-│   ├── MX_DMA_Init()
-│   ├── MX_ADC1_Init()
-│   ├── MX_TIM3_Init()
-│   └── MX_I2C1_Init()
-├── Main Loop
-│   ├── ADC Conversion Check
-│   ├── Temperature Calculation
-│   └── LCD Update
-└── Interrupt Callbacks
-    └── HAL_ADC_ConvCpltCallback()
+IntTemp-Sensor-STM32F401/
+├── Core/
+│   ├── Inc/LCD.h              # LCD driver API
+│   ├── Src/LCD.c              # HD44780 4-bit driver over PCF8574
+│   └── Src/main.c             # ADC scan + DMA, TIM3, conversion, display
+├── Drivers/                   # STM32 HAL and CMSIS (generated)
+├── Temperature-Sensor.ioc     # CubeMX configuration
+└── output.jpeg
 ```
 
-## Performance Specifications
+## <img src="https://api.iconify.design/lucide/gauge.svg?color=%23EF4444" width="26" align="top" alt=""/> Status and Ideas
 
-- **Update Rate**: 2 seconds per reading
-- **Resolution**: 12-bit ADC (0.01°C display precision)
-- **Range**: Typical -40°C to +85°C (STM32 operating range)
-- **Accuracy**: ±2°C (typical for internal sensor)
+Complete and working (June 2025). The internal sensor measures the **die temperature**, which runs a little above room temperature while the chip is working, and typical accuracy with datasheet constants is about ±1.5 to 2 °C.
 
-## Build and Flash
+Possible improvements:
+- Use the factory calibration values stored in the chip (`VREFINT_CAL`, and `TS_CAL1` / `TS_CAL2` at 30 °C and 110 °C) instead of the typical constants
+- Average several samples per reading
+- Drive the display from the DMA callback instead of a fixed delay
 
-1. **Prerequisites**:
-   - STM32CubeIDE or compatible toolchain
-   - STM32 HAL library
-   - Custom LCD library (`LCD.h`)
+## <img src="https://api.iconify.design/lucide/scale.svg?color=%23EF4444" width="26" align="top" alt=""/> License
 
-2. **Build Process**:
-   ```bash
-   # Using STM32CubeIDE
-   1. Import project
-   2. Build project (Ctrl+B)
-   3. Flash to target (F11)
-   ```
+My code (`LCD.c`, `LCD.h` and the `USER CODE` sections of `main.c`) is MIT, see [LICENSE](LICENSE). Files generated by STM32CubeMX and everything under `Drivers/` remain under STMicroelectronics' and Arm's licenses stated in those files.
 
-## Troubleshooting
+Questions: mukeshkumar.cse24@gmail.com
 
-### Common Issues
+<div align="center">
 
-1. **LCD Not Displaying**:
-   - Check I2C connections (SDA/SCL)
-   - Verify I2C address in LCD library
-   - Ensure proper pull-up resistors
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:EF4444,100:03234B&height=110&section=footer&animation=fadeIn" width="100%" alt=""/>
 
-2. **Incorrect Temperature Readings**:
-   - Verify VREFINT calibration value
-   - Check ADC reference voltage
-   - Ensure proper MCU temperature range
-
-3. **Erratic Readings**:
-   - Check for electromagnetic interference
-   - Verify stable power supply
-   - Ensure proper grounding
-
-## Customization
-
-### Changing Update Rate
-Modify the delay in main loop:
-```c
-HAL_Delay(2000);  // Change value for different update rates
-```
-
-### Temperature Units
-Add Fahrenheit conversion:
-```c
-double temp_fahrenheit = (Temperature * 9.0/5.0) + 32.0;
-```
-
-### Display Format
-Modify LCD output format:
-```c
-sprintf(lcd_buffer, "%.1f°C", Temperature);  // 1 decimal place
-```
-
-## License
-
-Copyright (c) 2025 STMicroelectronics.
-All rights reserved.
-
-This software is licensed under terms that can be found in the LICENSE file in the root directory of this software component.
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Commit changes
-4. Push to branch
-5. Create Pull Request
-
-## Support
-
-For technical support and questions:
-- Check STM32 community forums
-- Refer to STM32 HAL documentation
-- Review datasheet for specific MCU variant
-
-## Contact
- 
-For doubts and queries:
-- email : mukeshkumar.cse24@gmail.com
+</div>
